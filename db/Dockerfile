@@ -1,3 +1,3 @@
-FROM redis:apline
+FROM redis:alpine
 
 EXPOSE 6379

@@ -86,7 +86,7 @@ func ShortenURL(c *fiber.Ctx) error {
 
 	// Set default expiry time (24 hours)
 	if req.Expiry == 0 {
-		req.Expiry = time.Duration(24) * time.Hour
+		req.Expiry = 24
 	}
 
 	// Enforce Https, SSL
@@ -135,7 +135,7 @@ func ShortenURL(c *fiber.Ctx) error {
 	ttl, _ := rdb.TTL(database.Ctx, c.IP()).Result()
 	res.XRateLimitReset = ttl / time.Nanosecond / time.Minute
 
-	res.CustomShort = os.Getenv("DOMAIN") + "/" + res.CustomShort
+	res.CustomShort = os.Getenv("DOMAIN") + "/" + id
 
 	return c.Status(fiber.StatusOK).JSON(res)
 }
