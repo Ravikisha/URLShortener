@@ -1,9 +1,12 @@
 package routes
 
 import (
+	"os"
 	"time"
 
-	"github.com/gofiber/fiber"
+	"github.com/gofiber/fiber/v2"
+
+	"github.com/ravikisha/url-shortener/helpers"
 )
 
 type request struct {
@@ -21,37 +24,66 @@ type response struct {
 }
 
 func ShortenURL(c *fiber.Ctx) error {
+	// Converting request
 	req := new(request)
+
+	// Parse JSON into request struct
 	if err := c.BodyParser(req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Cannot parse JSON",
 		})
 	}
 
+	// TODO: Implement rate limiting
+
+	// Check if URL is empty
 	if req.URL == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "URL is required",
 		})
 	}
 
+	// Validate the URL
+	if !govalidator.IsURL(req.URL) {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid URL",
+		})
+	}
+
+	// Check the Domain Name Error
+	if !helpers.RemoveDomainNameError(req.URL) {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Domain Name Error",
+		})
+	}
+
+	// Set default expiry time (24 hours)
 	if req.Expiry == 0 {
 		req.Expiry = time.Duration(24) * time.Hour
 	}
 
+	// Generate short URL
 	if req.CustomShort == "" {
 		req.CustomShort = generateShortURL()
 	}
 
+	// Enforce Https, SSL
+	req.URL = helpers.EnforceHTTP(req.URL)
+
+	// Store the URL
 	if err := storeURL(req.URL, req.CustomShort, req.Expiry); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Cannot store URL",
 		})
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
-		"short":  req.CustomShort,
-		"url":    req.URL,
-		"expiry": req.Expiry,
+	// Return response
+	return c.JSON(response{
+		URL:             req.URL,
+		CustomShort:     req.CustomShort,
+		Expiry:          req.Expiry,
+		XRateRemaining:  os.Getenv("APP_QUOTA"),
+		XRateLimitReset: time.Duration(24) * time.Hour,
 	})
 }
 
