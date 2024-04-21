@@ -4,6 +4,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/asaskevich/govalidator"
 	"github.com/gofiber/fiber/v2"
 
 	"github.com/ravikisha/url-shortener/helpers"
