@@ -3,6 +3,8 @@ package helpers
 import (
 	"os"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 func RemoveDomainNameError(url string) bool {
@@ -23,4 +25,8 @@ func EnforceHTTP(url string) string {
 		url = "http://" + url
 	}
 	return url
+}
+
+func GenerateID() string {
+	return uuid.New().String()[:6]
 }

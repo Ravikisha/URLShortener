@@ -39,7 +39,7 @@ func ShortenURL(c *fiber.Ctx) error {
 	}
 
 	// Implement rate limiting
-	rdb := database.NewClient(2)
+	rdb := database.NewClient(1)
 	defer rdb.Close()
 
 	// Get the number of requests made
@@ -53,7 +53,7 @@ func ShortenURL(c *fiber.Ctx) error {
 		})
 	} else {
 		// Check if the number of requests is greater than the quota
-		limit, _ := strconv.Atoi(os.Getenv("APP_QUOTA"))
+		limit, _ := rdb.TTL(database.Ctx, c.IP()).Result()
 		valInt, _ := strconv.Atoi(val)
 		if valInt <= 0 {
 			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
@@ -89,27 +89,53 @@ func ShortenURL(c *fiber.Ctx) error {
 		req.Expiry = time.Duration(24) * time.Hour
 	}
 
-	// Generate short URL
-	if req.CustomShort == "" {
-		req.CustomShort = generateShortURL()
-	}
-
 	// Enforce Https, SSL
 	req.URL = helpers.EnforceHTTP(req.URL)
+
+	// Save the URL in the database
+	var id string
+	if req.CustomShort != "" {
+		id = req.CustomShort
+	} else {
+		id = helpers.GenerateID()
+	}
+
+	rdb2 := database.NewClient(0)
+	defer rdb2.Close()
+
+	val, _ = rdb2.Get(database.Ctx, id).Result()
+	if val != "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Custom short URL already exists",
+		})
+	}
+
+	err = rdb2.Set(database.Ctx, id, req.URL, req.Expiry).Err()
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Internal Server Error",
+		})
+	}
 
 	// Decrement the number of requests made
 	rdb.Decr(database.Ctx, c.IP())
 
 	// Return response
-	return c.JSON(response{
+	res := response{
 		URL:             req.URL,
 		CustomShort:     req.CustomShort,
 		Expiry:          req.Expiry,
-		XRateRemaining:  1,
+		XRateRemaining:  10,
 		XRateLimitReset: time.Duration(24) * time.Hour,
-	})
-}
+	}
 
-func generateShortURL() string {
-	return "abc123"
+	val, _ = rdb.Get(database.Ctx, c.IP()).Result()
+	res.XRateRemaining, _ = strconv.Atoi(val)
+
+	ttl, _ := rdb.TTL(database.Ctx, c.IP()).Result()
+	res.XRateLimitReset = ttl / time.Nanosecond / time.Minute
+
+	res.CustomShort = os.Getenv("DOMAIN") + "/" + res.CustomShort
+
+	return c.Status(fiber.StatusOK).JSON(res)
 }
