@@ -2,11 +2,14 @@ package routes
 
 import (
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/asaskevich/govalidator"
+	"github.com/go-redis/redis/v8"
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/ravikisha/url-shortener/database"
 	"github.com/ravikisha/url-shortener/helpers"
 )
 
@@ -35,7 +38,30 @@ func ShortenURL(c *fiber.Ctx) error {
 		})
 	}
 
-	// TODO: Implement rate limiting
+	// Implement rate limiting
+	rdb := database.NewClient(2)
+	defer rdb.Close()
+
+	// Get the number of requests made
+	val, err := rdb.Get(database.Ctx, c.IP()).Result()
+
+	if err == redis.Nil {
+		_ = rdb.Set(database.Ctx, c.IP(), os.Getenv("APP_QUOTA"), 30*60*time.Second).Err()
+	} else if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Internal Server Error",
+		})
+	} else {
+		// Check if the number of requests is greater than the quota
+		limit, _ := strconv.Atoi(os.Getenv("APP_QUOTA"))
+		valInt, _ := strconv.Atoi(val)
+		if valInt <= 0 {
+			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
+				"error":              "Rate limit exceeded",
+				"x-rate-limit-reset": limit / time.Nanosecond / time.Minute,
+			})
+		}
+	}
 
 	// Check if URL is empty
 	if req.URL == "" {
@@ -71,19 +97,15 @@ func ShortenURL(c *fiber.Ctx) error {
 	// Enforce Https, SSL
 	req.URL = helpers.EnforceHTTP(req.URL)
 
-	// Store the URL
-	if err := storeURL(req.URL, req.CustomShort, req.Expiry); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Cannot store URL",
-		})
-	}
+	// Decrement the number of requests made
+	rdb.Decr(database.Ctx, c.IP())
 
 	// Return response
 	return c.JSON(response{
 		URL:             req.URL,
 		CustomShort:     req.CustomShort,
 		Expiry:          req.Expiry,
-		XRateRemaining:  os.Getenv("APP_QUOTA"),
+		XRateRemaining:  1,
 		XRateLimitReset: time.Duration(24) * time.Hour,
 	})
 }

@@ -36,5 +36,4 @@ func ResolveURL(c *fiber.Ctx) error {
 	// Increment the number of times the URL has been resolved
 	_ = rInr.Incr(database.Ctx, "counter")
 	return c.Redirect(val, fiber.StatusMovedPermanently)
-
 }
